@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>骑马钉小册子拼版检查</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <h1>骑马钉小册子拼版检查</h1>
+    <p>输入成品页数，自动补齐为 4 的倍数并生成拼版；支持版位交换与编辑，实时校验重复页、缺页与正反配对异常，校验通过后可导出 CSV。</p>
+  </header>
+
+  <main>
+    <section class="card controls">
+      <div class="row">
+        <label for="pagesInput">成品页数</label>
+        <input id="pagesInput" type="number" min="1" max="500" value="8">
+        <button id="generateBtn" class="primary">生成拼版</button>
+        <button id="resetBtn" disabled>重置</button>
+        <span class="spacer"></span>
+        <div class="mode-group" role="group" aria-label="操作模式">
+          <button id="swapModeBtn" class="mode active" type="button">交换模式</button>
+          <button id="editModeBtn" class="mode" type="button">编辑模式</button>
+        </div>
+        <button id="exportBtn" class="primary" disabled>导出 CSV</button>
+      </div>
+      <p id="modeHint" class="hint"></p>
+      <p id="summary" class="summary"></p>
+    </section>
+
+    <div class="layout">
+      <section id="sheetsArea">
+        <p id="emptyTip" class="empty">
+          请输入成品页数并点击「生成拼版」。纸张将按装订后的嵌套顺序预览：第 1 张为最外层，逐张向内套叠。
+        </p>
+        <p id="nestTip" class="nest-tip" hidden>纸张按装订后的嵌套顺序排列（缩进表示套叠关系，第 1 张为最外层）：</p>
+        <div id="sheets"></div>
+      </section>
+
+      <aside class="card errors-card">
+        <h2>校验结果</h2>
+        <div id="errors"><p class="muted">尚未生成拼版。</p></div>
+      </aside>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
