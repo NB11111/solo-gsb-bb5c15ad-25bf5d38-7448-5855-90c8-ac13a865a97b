@@ -5,6 +5,10 @@ const els = {
   generateBtn: document.getElementById('generateBtn'),
   resetBtn: document.getElementById('resetBtn'),
   exportBtn: document.getElementById('exportBtn'),
+  singleModeBtn: document.getElementById('singleModeBtn'),
+  multiModeBtn: document.getElementById('multiModeBtn'),
+  sigCapLabel: document.getElementById('sigCapLabel'),
+  sigCapInput: document.getElementById('sigCapInput'),
   swapModeBtn: document.getElementById('swapModeBtn'),
   editModeBtn: document.getElementById('editModeBtn'),
   modeHint: document.getElementById('modeHint'),
@@ -17,15 +21,17 @@ const els = {
 
 const SIDE_LABEL = { front: '正面', back: '反面' };
 const POS_LABEL = { left: '左版', right: '右版' };
+const MAX_SHEETS_PER_SIGNATURE = 8;
 const MODE_HINT = {
   swap: '交换模式：依次点击两个版位，即可交换它们的页码（再次点击已选中的版位可取消选择）。',
   edit: '编辑模式：点击任意版位，可直接输入页码或设为空白。',
 };
 
-let state = null; // 当前拼版状态 { pages, totalPages, sheetCount, sheets }
+let state = null; // 当前拼版状态（单帖 {sheets} / 分帖 {signatures}）
 let original = null; // 初始标准拼版（用于重置）
-let mode = 'swap'; // 'swap' | 'edit'
-let selected = null; // 交换模式下已选中的版位 { sheet, side, pos }
+let layout = 'single'; // 拼版模式：'single' | 'multi'
+let mode = 'swap'; // 操作模式：'swap' | 'edit'
+let selected = null; // 交换模式下已选中的版位 { sig, sheet, side, pos }
 let validateTimer = null;
 
 async function api(path, body) {
@@ -39,20 +45,67 @@ async function api(path, body) {
   return data;
 }
 
+/** 当前状态下的全部帖（统一为 { sig, sheets }，单帖 sig 为 null） */
+function groups() {
+  if (!state) return [];
+  if (layout === 'multi') return state.signatures;
+  return [{ sig: null, sheets: state.sheets }];
+}
+
+function findSheet(ref) {
+  if (layout === 'multi') {
+    return state.signatures.find((g) => g.sig === ref.sig)
+      .sheets.find((s) => s.index === ref.sheet);
+  }
+  return state.sheets[ref.sheet - 1];
+}
+
 function getSlot(ref) {
-  return state.sheets[ref.sheet - 1][ref.side][ref.pos];
+  return findSheet(ref)[ref.side][ref.pos];
 }
 
 function setSlot(ref, value) {
-  state.sheets[ref.sheet - 1][ref.side][ref.pos] = value;
+  findSheet(ref)[ref.side][ref.pos] = value;
 }
 
-/* ---------- 生成 / 重置 ---------- */
+/* ---------- 模式切换 / 生成 / 重置 ---------- */
+
+function setLayout(next) {
+  if (layout === next) return;
+  layout = next;
+  els.singleModeBtn.classList.toggle('active', layout === 'single');
+  els.multiModeBtn.classList.toggle('active', layout === 'multi');
+  els.sigCapLabel.hidden = layout !== 'multi';
+  els.sigCapInput.hidden = layout !== 'multi';
+
+  // 已生成的拼版属于另一种模式，清空工作区以避免结构不一致
+  if (state) {
+    state = null;
+    original = null;
+    selected = null;
+    els.sheets.innerHTML = '';
+    els.emptyTip.hidden = false;
+    els.nestTip.hidden = true;
+    els.summary.textContent = '';
+    els.resetBtn.disabled = true;
+    els.exportBtn.disabled = true;
+    els.errors.innerHTML = '<p class="muted">已切换拼版模式，请重新点击「生成拼版」。</p>';
+  }
+}
 
 async function generate() {
   const pages = Number(els.pagesInput.value);
+  const body = { pages };
+  if (layout === 'multi') {
+    const m = Number(els.sigCapInput.value);
+    if (!Number.isInteger(m) || m < 1 || m > MAX_SHEETS_PER_SIGNATURE) {
+      alert(`每帖最多纸张数必须是 1~${MAX_SHEETS_PER_SIGNATURE} 的整数`);
+      return;
+    }
+    body.sheetsPerSignature = m;
+  }
   try {
-    const data = await api('/api/generate', { pages });
+    const data = await api('/api/generate', body);
     state = data;
     original = structuredClone(data);
     selected = null;
@@ -77,47 +130,99 @@ function render() {
   if (!state) return;
   els.emptyTip.hidden = true;
   els.nestTip.hidden = false;
-  els.summary.textContent =
-    `成品 ${state.pages} 页 → 补齐至 ${state.totalPages} 页` +
-    `（空白 ${state.totalPages - state.pages} 页） · 共 ${state.sheetCount} 张纸 · 每张正反 2 面、每面左右 2 版`;
+
+  if (layout === 'multi') {
+    els.summary.textContent =
+      `成品 ${state.pages} 页 → 补齐至 ${state.totalPages} 页` +
+      `（空白 ${state.totalPages - state.pages} 页） · 共 ${state.signatureCount} 帖、${state.sheetCount} 张纸` +
+      ` · 每帖最多 ${state.sheetsPerSignature} 张（${state.sheetsPerSignature * 4} 个成品页），仅末帖补空白`;
+  } else {
+    els.summary.textContent =
+      `成品 ${state.pages} 页 → 补齐至 ${state.totalPages} 页` +
+      `（空白 ${state.totalPages - state.pages} 页） · 共 ${state.sheetCount} 张纸 · 每张正反 2 面、每面左右 2 版`;
+  }
 
   els.sheets.innerHTML = '';
-  state.sheets.forEach((sheet, idx) => {
-    const card = document.createElement('section');
-    card.className = 'sheet';
-    card.style.setProperty('--indent', idx);
-    card.dataset.sheet = sheet.index;
-
-    const nestLabel =
-      idx === 0 ? '最外层' : idx === state.sheets.length - 1 && idx > 0 ? '最内层' : '';
-    const header = document.createElement('header');
-    header.innerHTML = `<strong>第 ${sheet.index} 张纸</strong>` +
-      (nestLabel ? `<span class="nest">${nestLabel}</span>` : '');
-    card.appendChild(header);
-
-    for (const side of ['front', 'back']) {
-      const row = document.createElement('div');
-      row.className = 'side';
-      const label = document.createElement('span');
-      label.className = 'side-label';
-      label.textContent = SIDE_LABEL[side];
-      row.appendChild(label);
-      for (const pos of ['left', 'right']) {
-        row.appendChild(renderSlot(sheet.index, side, pos, sheet[side][pos]));
-      }
-      card.appendChild(row);
+  for (const g of groups()) {
+    if (layout === 'multi') {
+      els.sheets.appendChild(renderSignature(g));
+    } else {
+      g.sheets.forEach((sheet, idx) =>
+        els.sheets.appendChild(renderSheetCard(g.sig, sheet, idx, g.sheets.length))
+      );
     }
-    els.sheets.appendChild(card);
-  });
+  }
 
   els.resetBtn.disabled = false;
   updateModeUI();
 }
 
-function renderSlot(sheetIndex, side, pos, value) {
+function renderSignature(g) {
+  const wrap = document.createElement('section');
+  wrap.className = 'signature';
+  wrap.dataset.sig = g.sig;
+
+  const lastSig = state.signatures[state.signatures.length - 1].sig;
+  let tag = '';
+  if (g.sig === lastSig) {
+    if (state.totalPages > state.pages) {
+      tag = '<span class="sig-tag last">末帖 · 补空白</span>';
+    } else if (state.signatures.length > 1) {
+      tag = '<span class="sig-tag">末帖</span>';
+    }
+  }
+  const header = document.createElement('header');
+  header.className = 'sig-header';
+  header.innerHTML =
+    `<strong>第 ${g.sig} 帖</strong>` +
+    `<span class="sig-range">成品页 第 ${g.startPage}～${g.endPage} 页</span>` +
+    `<span class="sig-range">${g.sheetCount} 张纸</span>` +
+    tag;
+  wrap.appendChild(header);
+
+  const body = document.createElement('div');
+  body.className = 'sig-body';
+  g.sheets.forEach((sheet, idx) =>
+    body.appendChild(renderSheetCard(g.sig, sheet, idx, g.sheets.length))
+  );
+  wrap.appendChild(body);
+  return wrap;
+}
+
+function renderSheetCard(sig, sheet, idx, groupSheetTotal) {
+  const card = document.createElement('section');
+  card.className = 'sheet';
+  card.style.setProperty('--indent', idx);
+  card.dataset.sheet = sheet.index;
+  if (sig != null) card.dataset.sig = sig;
+
+  const nestLabel =
+    idx === 0 ? '最外层' : idx === groupSheetTotal - 1 && idx > 0 ? '最内层' : '';
+  const header = document.createElement('header');
+  header.innerHTML = `<strong>第 ${sheet.index} 张纸</strong>` +
+    (nestLabel ? `<span class="nest">${nestLabel}</span>` : '');
+  card.appendChild(header);
+
+  for (const side of ['front', 'back']) {
+    const row = document.createElement('div');
+    row.className = 'side';
+    const label = document.createElement('span');
+    label.className = 'side-label';
+    label.textContent = SIDE_LABEL[side];
+    row.appendChild(label);
+    for (const pos of ['left', 'right']) {
+      row.appendChild(renderSlot(sig, sheet.index, side, pos, sheet[side][pos]));
+    }
+    card.appendChild(row);
+  }
+  return card;
+}
+
+function renderSlot(sig, sheetIndex, side, pos, value) {
   const slot = document.createElement('div');
   slot.className = 'slot' + (value === null ? ' blank' : '');
   slot.dataset.sheet = sheetIndex;
+  if (sig != null) slot.dataset.sig = sig;
   slot.dataset.side = side;
   slot.dataset.pos = pos;
   slot.setAttribute('role', 'button');
@@ -131,45 +236,53 @@ function renderSlot(sheetIndex, side, pos, value) {
   pageEl.textContent = value === null ? '空白' : `第 ${value} 页`;
   slot.append(posEl, pageEl);
 
-  if (selected && selected.sheet === sheetIndex && selected.side === side && selected.pos === pos) {
+  if (
+    selected &&
+    selected.sig === sig &&
+    selected.sheet === sheetIndex &&
+    selected.side === side &&
+    selected.pos === pos
+  ) {
     slot.classList.add('selected');
   }
-  slot.addEventListener('click', () => onSlotClick(sheetIndex, side, pos, slot));
+  slot.addEventListener('click', () => onSlotClick({ sig, sheet: sheetIndex, side, pos }, slot));
   return slot;
 }
 
 /* ---------- 交互：交换 / 编辑 ---------- */
 
-function onSlotClick(sheetIndex, side, pos, el) {
+function sameRef(a, b) {
+  return a.sig === b.sig && a.sheet === b.sheet && a.side === b.side && a.pos === b.pos;
+}
+
+function onSlotClick(ref, el) {
   if (el.classList.contains('editing')) return;
 
   if (mode === 'edit') {
-    openEditor(sheetIndex, side, pos, el);
+    openEditor(ref, el);
     return;
   }
 
   // 交换模式
   if (!selected) {
-    selected = { sheet: sheetIndex, side, pos };
+    selected = ref;
     el.classList.add('selected');
     return;
   }
-  if (selected.sheet === sheetIndex && selected.side === side && selected.pos === pos) {
+  if (sameRef(selected, ref)) {
     selected = null;
     el.classList.remove('selected');
     return;
   }
-  const target = { sheet: sheetIndex, side, pos };
   const tmp = getSlot(selected);
-  setSlot(selected, getSlot(target));
-  setSlot(target, tmp);
+  setSlot(selected, getSlot(ref));
+  setSlot(ref, tmp);
   selected = null;
   render();
   scheduleValidate();
 }
 
-function openEditor(sheetIndex, side, pos, el) {
-  const ref = { sheet: sheetIndex, side, pos };
+function openEditor(ref, el) {
   const current = getSlot(ref);
   el.classList.add('editing');
   el.innerHTML = '';
@@ -260,7 +373,9 @@ function renderErrors(result) {
   if (result.valid) {
     const p = document.createElement('p');
     p.className = 'ok';
-    p.textContent = '✓ 校验通过：页码无重复、无缺失，各纸张正反配对正确，可以导出 CSV。';
+    p.textContent = layout === 'multi'
+      ? '✓ 校验通过：各帖页码连续、无重复、无缺失，帖内正反配对正确，可以导出 CSV。'
+      : '✓ 校验通过：页码无重复、无缺失，各纸张正反配对正确，可以导出 CSV。';
     els.errors.appendChild(p);
     return;
   }
@@ -274,11 +389,18 @@ function renderErrors(result) {
   if (e.outOfRange.length) {
     addErrGroup(`页码超出范围：${e.outOfRange.map((p) => `第 ${p} 页`).join('、')}`);
   }
+  if (e.crossSignature) {
+    for (const c of e.crossSignature) {
+      addErrGroup(`第 ${c.sig} 帖跨帖异常：${c.message}`);
+    }
+  }
   for (const p of e.pairing) {
     const div = document.createElement('div');
     div.className = 'err-group';
     const title = document.createElement('strong');
-    title.textContent = `第 ${p.sheet} 张纸配对异常：`;
+    title.textContent = p.sig != null
+      ? `第 ${p.sig} 帖 · 第 ${p.sheet} 张纸配对异常：`
+      : `第 ${p.sheet} 张纸配对异常：`;
     const ul = document.createElement('ul');
     for (const m of p.messages) {
       const li = document.createElement('li');
@@ -305,23 +427,27 @@ function markSlotErrors(slotErrors) {
     el.removeAttribute('title');
   });
   els.sheets.querySelectorAll('.sheet.has-error').forEach((el) => el.classList.remove('has-error'));
+  els.sheets.querySelectorAll('.signature.has-error').forEach((el) => el.classList.remove('has-error'));
 
   const byKey = new Map();
   for (const se of slotErrors) {
-    const key = `${se.sheet}|${se.side}|${se.pos}`;
+    const key = `${se.sig ?? ''}|${se.sheet}|${se.side}|${se.pos}`;
     if (!byKey.has(key)) byKey.set(key, []);
     byKey.get(key).push(se.message);
   }
   for (const [key, messages] of byKey) {
-    const [sheet, side, pos] = key.split('|');
-    const el = els.sheets.querySelector(
-      `.slot[data-sheet="${sheet}"][data-side="${side}"][data-pos="${pos}"]`
-    );
+    const [sig, sheet, side, pos] = key.split('|');
+    const selector = sig
+      ? `.slot[data-sig="${sig}"][data-sheet="${sheet}"][data-side="${side}"][data-pos="${pos}"]`
+      : `.slot:not([data-sig])[data-sheet="${sheet}"][data-side="${side}"][data-pos="${pos}"]`;
+    const el = els.sheets.querySelector(selector);
     if (!el) continue;
     el.classList.add('error');
     el.title = [...new Set(messages)].join('\n');
     const card = el.closest('.sheet');
     if (card) card.classList.add('has-error');
+    const sigCard = el.closest('.signature');
+    if (sigCard) sigCard.classList.add('has-error');
   }
 }
 
@@ -343,7 +469,9 @@ async function exportCsv() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `imposition-${state.totalPages}p.csv`;
+  a.download = layout === 'multi'
+    ? `imposition-${state.totalPages}p-${state.signatureCount}sig.csv`
+    : `imposition-${state.totalPages}p.csv`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -358,6 +486,11 @@ els.exportBtn.addEventListener('click', exportCsv);
 els.pagesInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') generate();
 });
+els.sigCapInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') generate();
+});
+els.singleModeBtn.addEventListener('click', () => setLayout('single'));
+els.multiModeBtn.addEventListener('click', () => setLayout('multi'));
 els.swapModeBtn.addEventListener('click', () => {
   mode = 'swap';
   selected = null;
@@ -369,4 +502,5 @@ els.editModeBtn.addEventListener('click', () => {
   render();
 });
 
+setLayout('single');
 updateModeUI();

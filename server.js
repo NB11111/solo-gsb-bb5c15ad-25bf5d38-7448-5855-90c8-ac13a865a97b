@@ -4,6 +4,7 @@ const path = require('path');
 const express = require('express');
 const {
   MAX_PAGES,
+  MAX_SHEETS_PER_SIGNATURE,
   generateImposition,
   validateImposition,
   buildCsv,
@@ -15,13 +16,27 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-/** 生成标准拼版 */
+/** 生成标准拼版（单帖模式；传入 sheetsPerSignature 时为分帖模式） */
 app.post('/api/generate', (req, res) => {
   const pages = Number(req.body && req.body.pages);
   if (!Number.isInteger(pages) || pages < 1 || pages > MAX_PAGES) {
     return res.status(400).json({ error: `成品页数必须是 1~${MAX_PAGES} 的整数` });
   }
-  res.json(generateImposition(pages));
+  const rawM = req.body && req.body.sheetsPerSignature;
+  let m = null;
+  if (rawM !== undefined && rawM !== null) {
+    m = Number(rawM);
+    if (!Number.isInteger(m) || m < 1 || m > MAX_SHEETS_PER_SIGNATURE) {
+      return res.status(400).json({
+        error: `每帖最多纸张数必须是 1~${MAX_SHEETS_PER_SIGNATURE} 的整数`,
+      });
+    }
+  }
+  try {
+    res.json(generateImposition(pages, m));
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
+  }
 });
 
 /** 实时校验当前拼版状态 */
@@ -44,10 +59,10 @@ app.post('/api/export', (req, res) => {
   }
   const csv = buildCsv(req.body);
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader(
-    'Content-Disposition',
-    `attachment; filename="imposition-${req.body.totalPages}p.csv"`
-  );
+  const filename = req.body.signatures
+    ? `imposition-${req.body.totalPages}p-${req.body.signatureCount}sig.csv`
+    : `imposition-${req.body.totalPages}p.csv`;
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.send(csv);
 });
 

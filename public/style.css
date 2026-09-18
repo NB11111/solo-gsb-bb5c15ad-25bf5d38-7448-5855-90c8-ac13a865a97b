@@ -90,7 +90,42 @@ button.primary:hover:not(:disabled) { background: var(--accent-dark); }
 .empty { color: var(--muted); font-size: 14px; padding: 12px 4px; }
 .nest-tip { color: var(--muted); font-size: 13px; margin: 4px 0 10px; }
 
-/* 纸张卡片：按嵌套顺序缩进 */
+/* 分帖：帖分组 */
+.signature {
+  border: 2px solid #b9c4d4;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 12px 14px 14px;
+  margin: 0 0 18px;
+}
+.signature.has-error { border-color: var(--bad); background: var(--bad-bg); }
+.sig-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 15px;
+  margin-bottom: 10px;
+}
+.signature.has-error .sig-header strong { color: var(--bad); }
+.sig-range {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+  background: #eef2f7;
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+.sig-tag {
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+.sig-tag.last { color: #92400e; background: #fef3c7; border: 1px solid #fcd34d; }
+.sig-body { min-width: 0; }
+
+/* 纸张卡片：按嵌套顺序缩进（分帖模式下按帖内序号缩进） */
 .sheet {
   background: #fff;
   border: 1px solid var(--border);
