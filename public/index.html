@@ -9,7 +9,7 @@
 <body>
   <header class="top">
     <h1>骑马钉小册子拼版检查</h1>
-    <p>输入成品页数，自动补齐为 4 的倍数并生成拼版；支持版位交换与编辑，实时校验重复页、缺页与正反配对异常，校验通过后可导出 CSV。</p>
+    <p>输入成品页数，自动补齐为 4 的倍数并生成拼版；可选分帖模式（每帖限定纸张上限，按成品页顺序分帖，仅最后一帖补空白）。支持版位交换与编辑，实时校验重复页、缺页、正反配对与跨帖连续性，校验通过后可导出 CSV。</p>
   </header>
 
   <main>
@@ -17,6 +17,13 @@
       <div class="row">
         <label for="pagesInput">成品页数</label>
         <input id="pagesInput" type="number" min="1" max="500" value="8">
+        <label class="check" for="sectionsMode">
+          <input id="sectionsMode" type="checkbox">
+          分帖
+        </label>
+        <label for="maxSheetsInput">每帖最多</label>
+        <input id="maxSheetsInput" type="number" min="1" max="8" value="4" disabled>
+        <span class="unit">张纸</span>
         <button id="generateBtn" class="primary">生成拼版</button>
         <button id="resetBtn" disabled>重置</button>
         <span class="spacer"></span>
@@ -33,7 +40,7 @@
     <div class="layout">
       <section id="sheetsArea">
         <p id="emptyTip" class="empty">
-          请输入成品页数并点击「生成拼版」。纸张将按装订后的嵌套顺序预览：第 1 张为最外层，逐张向内套叠。
+          请输入成品页数并点击「生成拼版」（勾选「分帖」可按每帖纸张上限分帖）。纸张将按装订后的嵌套顺序预览：第 1 张为最外层，逐张向内套叠。
         </p>
         <p id="nestTip" class="nest-tip" hidden>纸张按装订后的嵌套顺序排列（缩进表示套叠关系，第 1 张为最外层）：</p>
         <div id="sheets"></div>

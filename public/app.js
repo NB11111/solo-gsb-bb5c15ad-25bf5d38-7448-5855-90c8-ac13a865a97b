@@ -2,6 +2,8 @@
 
 const els = {
   pagesInput: document.getElementById('pagesInput'),
+  sectionsMode: document.getElementById('sectionsMode'),
+  maxSheetsInput: document.getElementById('maxSheetsInput'),
   generateBtn: document.getElementById('generateBtn'),
   resetBtn: document.getElementById('resetBtn'),
   exportBtn: document.getElementById('exportBtn'),
@@ -22,7 +24,7 @@ const MODE_HINT = {
   edit: '编辑模式：点击任意版位，可直接输入页码或设为空白。',
 };
 
-let state = null; // 当前拼版状态 { pages, totalPages, sheetCount, sheets }
+let state = null; // 当前拼版状态 { pages, totalPages, sheetCount, sheets, mode?, sections? }
 let original = null; // 初始标准拼版（用于重置）
 let mode = 'swap'; // 'swap' | 'edit'
 let selected = null; // 交换模式下已选中的版位 { sheet, side, pos }
@@ -51,8 +53,12 @@ function setSlot(ref, value) {
 
 async function generate() {
   const pages = Number(els.pagesInput.value);
+  const body = { pages };
+  if (els.sectionsMode.checked) {
+    body.maxSheetsPerSection = Number(els.maxSheetsInput.value);
+  }
   try {
-    const data = await api('/api/generate', { pages });
+    const data = await api('/api/generate', body);
     state = data;
     original = structuredClone(data);
     selected = null;
@@ -75,43 +81,83 @@ function reset() {
 
 function render() {
   if (!state) return;
+  const sectioned = state.mode === 'sections';
   els.emptyTip.hidden = true;
   els.nestTip.hidden = false;
+  els.nestTip.textContent = sectioned
+    ? '分帖模式：每帖独立骑马钉装订，帖内纸张按嵌套顺序排列（缩进表示套叠关系，每帖第 1 张为最外层）：'
+    : '纸张按装订后的嵌套顺序排列（缩进表示套叠关系，第 1 张为最外层）：';
   els.summary.textContent =
     `成品 ${state.pages} 页 → 补齐至 ${state.totalPages} 页` +
-    `（空白 ${state.totalPages - state.pages} 页） · 共 ${state.sheetCount} 张纸 · 每张正反 2 面、每面左右 2 版`;
+    `（空白 ${state.totalPages - state.pages} 页） · ` +
+    (sectioned ? `分 ${state.sectionCount} 帖（每帖最多 ${state.maxSheetsPerSection} 张） · ` : '') +
+    `共 ${state.sheetCount} 张纸 · 每张正反 2 面、每面左右 2 版`;
 
   els.sheets.innerHTML = '';
-  state.sheets.forEach((sheet, idx) => {
-    const card = document.createElement('section');
-    card.className = 'sheet';
-    card.style.setProperty('--indent', idx);
-    card.dataset.sheet = sheet.index;
-
-    const nestLabel =
-      idx === 0 ? '最外层' : idx === state.sheets.length - 1 && idx > 0 ? '最内层' : '';
-    const header = document.createElement('header');
-    header.innerHTML = `<strong>第 ${sheet.index} 张纸</strong>` +
-      (nestLabel ? `<span class="nest">${nestLabel}</span>` : '');
-    card.appendChild(header);
-
-    for (const side of ['front', 'back']) {
-      const row = document.createElement('div');
-      row.className = 'side';
-      const label = document.createElement('span');
-      label.className = 'side-label';
-      label.textContent = SIDE_LABEL[side];
-      row.appendChild(label);
-      for (const pos of ['left', 'right']) {
-        row.appendChild(renderSlot(sheet.index, side, pos, sheet[side][pos]));
-      }
-      card.appendChild(row);
+  if (sectioned) {
+    for (const sec of state.sections) {
+      els.sheets.appendChild(renderSection(sec));
     }
-    els.sheets.appendChild(card);
-  });
+  } else {
+    state.sheets.forEach((sheet, idx) => {
+      els.sheets.appendChild(renderSheet(sheet, idx, state.sheets.length, `第 ${sheet.index} 张纸`));
+    });
+  }
 
   els.resetBtn.disabled = false;
   updateModeUI();
+}
+
+/* 分帖模式：一帖一组，组内纸张按嵌套顺序缩进 */
+function renderSection(sec) {
+  const group = document.createElement('div');
+  group.className = 'section-group';
+  group.dataset.section = sec.index;
+
+  const contentEnd = Math.min(sec.endPage, state.pages);
+  const blanks = sec.endPage - contentEnd;
+  const head = document.createElement('header');
+  head.className = 'section-head';
+  head.innerHTML =
+    `<strong>第 ${sec.index} 帖</strong>` +
+    `<span class="range">第 ${sec.startPage}~${contentEnd} 页` +
+    (blanks > 0 ? `（末尾补空白 ${blanks} 页）` : '') +
+    ` · ${sec.sheetCount} 张纸</span>`;
+  group.appendChild(head);
+
+  for (let j = 0; j < sec.sheetCount; j++) {
+    const sheet = state.sheets[sec.sheetStart - 1 + j];
+    group.appendChild(renderSheet(sheet, j, sec.sheetCount, `第 ${j + 1} 张纸`));
+  }
+  return group;
+}
+
+function renderSheet(sheet, indent, groupSize, title) {
+  const card = document.createElement('section');
+  card.className = 'sheet';
+  card.style.setProperty('--indent', indent);
+  card.dataset.sheet = sheet.index;
+
+  const nestLabel =
+    indent === 0 ? '最外层' : indent === groupSize - 1 && indent > 0 ? '最内层' : '';
+  const header = document.createElement('header');
+  header.innerHTML = `<strong>${title}</strong>` +
+    (nestLabel ? `<span class="nest">${nestLabel}</span>` : '');
+  card.appendChild(header);
+
+  for (const side of ['front', 'back']) {
+    const row = document.createElement('div');
+    row.className = 'side';
+    const label = document.createElement('span');
+    label.className = 'side-label';
+    label.textContent = SIDE_LABEL[side];
+    row.appendChild(label);
+    for (const pos of ['left', 'right']) {
+      row.appendChild(renderSlot(sheet.index, side, pos, sheet[side][pos]));
+    }
+    card.appendChild(row);
+  }
+  return card;
 }
 
 function renderSlot(sheetIndex, side, pos, value) {
@@ -257,10 +303,13 @@ async function validateNow() {
 
 function renderErrors(result) {
   els.errors.innerHTML = '';
+  const sectioned = state && state.mode === 'sections';
   if (result.valid) {
     const p = document.createElement('p');
     p.className = 'ok';
-    p.textContent = '✓ 校验通过：页码无重复、无缺失，各纸张正反配对正确，可以导出 CSV。';
+    p.textContent = sectioned
+      ? '✓ 校验通过：页码无重复、无缺失，跨帖页码连续，各帖纸张正反配对正确，可以导出 CSV。'
+      : '✓ 校验通过：页码无重复、无缺失，各纸张正反配对正确，可以导出 CSV。';
     els.errors.appendChild(p);
     return;
   }
@@ -274,11 +323,27 @@ function renderErrors(result) {
   if (e.outOfRange.length) {
     addErrGroup(`页码超出范围：${e.outOfRange.map((p) => `第 ${p} 页`).join('、')}`);
   }
+  if (e.crossSection && e.crossSection.length) {
+    const div = document.createElement('div');
+    div.className = 'err-group';
+    const title = document.createElement('strong');
+    title.textContent = '跨帖页码不连续：';
+    const ul = document.createElement('ul');
+    for (const c of e.crossSection) {
+      const li = document.createElement('li');
+      li.textContent = c.message;
+      ul.appendChild(li);
+    }
+    div.append(title, ul);
+    els.errors.appendChild(div);
+  }
   for (const p of e.pairing) {
     const div = document.createElement('div');
     div.className = 'err-group';
     const title = document.createElement('strong');
-    title.textContent = `第 ${p.sheet} 张纸配对异常：`;
+    title.textContent = sectioned
+      ? `第 ${p.section} 帖第 ${p.sectionIndex} 张纸配对异常：`
+      : `第 ${p.sheet} 张纸配对异常：`;
     const ul = document.createElement('ul');
     for (const m of p.messages) {
       const li = document.createElement('li');
@@ -305,6 +370,9 @@ function markSlotErrors(slotErrors) {
     el.removeAttribute('title');
   });
   els.sheets.querySelectorAll('.sheet.has-error').forEach((el) => el.classList.remove('has-error'));
+  els.sheets
+    .querySelectorAll('.section-group.has-error')
+    .forEach((el) => el.classList.remove('has-error'));
 
   const byKey = new Map();
   for (const se of slotErrors) {
@@ -322,6 +390,8 @@ function markSlotErrors(slotErrors) {
     el.title = [...new Set(messages)].join('\n');
     const card = el.closest('.sheet');
     if (card) card.classList.add('has-error');
+    const group = el.closest('.section-group');
+    if (group) group.classList.add('has-error');
   }
 }
 
@@ -355,6 +425,9 @@ async function exportCsv() {
 els.generateBtn.addEventListener('click', generate);
 els.resetBtn.addEventListener('click', reset);
 els.exportBtn.addEventListener('click', exportCsv);
+els.sectionsMode.addEventListener('change', () => {
+  els.maxSheetsInput.disabled = !els.sectionsMode.checked;
+});
 els.pagesInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') generate();
 });

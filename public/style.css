@@ -43,6 +43,13 @@ main { max-width: 1180px; margin: 0 auto; padding: 20px 24px 48px; }
   gap: 10px;
 }
 .controls label { font-weight: 600; font-size: 14px; }
+.controls label.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.controls .unit { font-size: 13px; color: var(--muted); }
 .controls input[type="number"] {
   width: 90px;
   padding: 8px 10px;
@@ -50,6 +57,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 20px 24px 48px; }
   border-radius: 6px;
   font-size: 14px;
 }
+.controls input[type="number"]:disabled { background: #f1f5f9; color: var(--muted); }
 .spacer { flex: 1; }
 
 button {
@@ -89,6 +97,25 @@ button.primary:hover:not(:disabled) { background: var(--accent-dark); }
 
 .empty { color: var(--muted); font-size: 14px; padding: 12px 4px; }
 .nest-tip { color: var(--muted); font-size: 13px; margin: 4px 0 10px; }
+
+/* 分帖模式：一帖一组 */
+.section-group {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #e9eef5;
+  padding: 12px 14px 2px;
+  margin-bottom: 16px;
+}
+.section-group.has-error { border-color: var(--bad); }
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+.section-head .range { color: var(--muted); font-size: 13px; }
+.section-group .sheet { background: #fff; }
 
 /* 纸张卡片：按嵌套顺序缩进 */
 .sheet {

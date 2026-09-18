@@ -4,6 +4,7 @@ const path = require('path');
 const express = require('express');
 const {
   MAX_PAGES,
+  MAX_SECTION_SHEETS,
   generateImposition,
   validateImposition,
   buildCsv,
@@ -15,13 +16,27 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-/** 生成标准拼版 */
+/** 生成标准拼版；传入 maxSheetsPerSection（1~8）时为分帖模式 */
 app.post('/api/generate', (req, res) => {
-  const pages = Number(req.body && req.body.pages);
+  const body = req.body || {};
+  const pages = Number(body.pages);
   if (!Number.isInteger(pages) || pages < 1 || pages > MAX_PAGES) {
     return res.status(400).json({ error: `成品页数必须是 1~${MAX_PAGES} 的整数` });
   }
-  res.json(generateImposition(pages));
+  let maxSheetsPerSection = null;
+  if (body.maxSheetsPerSection !== undefined && body.maxSheetsPerSection !== null) {
+    maxSheetsPerSection = Number(body.maxSheetsPerSection);
+    if (
+      !Number.isInteger(maxSheetsPerSection) ||
+      maxSheetsPerSection < 1 ||
+      maxSheetsPerSection > MAX_SECTION_SHEETS
+    ) {
+      return res
+        .status(400)
+        .json({ error: `每帖最多纸张数必须是 1~${MAX_SECTION_SHEETS} 的整数` });
+    }
+  }
+  res.json(generateImposition(pages, maxSheetsPerSection));
 });
 
 /** 实时校验当前拼版状态 */
